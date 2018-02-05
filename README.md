@@ -1,2 +1,3 @@
 ![](find_your_art.png)
-Explore art styles you like using transfer learning
+Discover artwork around you using transfer learning
+

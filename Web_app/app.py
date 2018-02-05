@@ -5,16 +5,15 @@ import dash_html_components as html
 import datetime
 import base64
 import json
-import pandas 
+import numpy as np 
 import plotly
 import io
-import numpy as np
 import argparse
 import os
 import itertools
-import urllib.request
+from urllib.request import urlopen
 from keras.models import load_model
-from keras.applications import vgg16  
+from keras import applications  
 from keras.preprocessing.image import img_to_array   
 from keras.utils.np_utils import to_categorical   
 import math
@@ -22,15 +21,17 @@ from PIL import Image, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 from tensorflow import get_default_graph
 from io import BytesIO
+import pandas
+
 
 ### IMPORT MODEL AND DATA
-path = '/Users/lizbaldo/Desktop/Insight_Project/' 
-model = load_model(path + 'my_model_25.h5')
+model = load_model('my_model_25.h5')
 graph_top = get_default_graph()
-model_vgg16 = vgg16.VGG16(include_top=False, weights='imagenet')
+model_vgg16 = applications.VGG16(include_top=False, weights='imagenet')
 graph_vgg16 = get_default_graph()
-text_directory = path + 'descriptions/'
-data = pandas.read_csv(path + 'cleaned_wikiart_data_artist_app.csv',encoding='utf-8')
+text_directory = 'descriptions/'
+data = pandas.read_csv('cleaned_wikiart_data_artist_app.csv',encoding='utf-8')
+
 
 style = ['Abstract Art','Abstract Expressionism','Art Informel','Modern',\
          'Baroque','Color Field Painting','Cubism','Early Renaissance','Expressionism',\
@@ -38,17 +39,19 @@ style = ['Abstract Art','Abstract Expressionism','Art Informel','Modern',\
          'Minimalism','Naive Art','Neoclassicism','Northern Renaissance','Pop Art',\
          'Post-Impressionism','Realism','Rococo','Romanticism','Surrealism','Symbolism','Ukiyo-e']
 
-title_filename = 'find_your_art.png'
+
+title_filename = 'find_your_art.png' 
 encoded_title = base64.b64encode(open(title_filename, 'rb').read())
 
-Liz_Pic = 'Liz_Baldo_Linkedin.jpg' 
+Liz_Pic = 'Liz_Baldo_Linkedin.jpg'
 encoded_Liz = base64.b64encode(open(Liz_Pic, 'rb').read())
 
 app = dash.Dash()
+server = app.server
 
 app.config.suppress_callback_exceptions = True
 
-app.scripts.config.serve_locally = True
+app.css.append_css({"external_url": "https://codepen.io/chriddyp/pen/bWLwgP.css"})
 
 app.title='Find Your Art'
 
@@ -95,41 +98,38 @@ index_page = html.Div([
     ])
 
 
-def parse_contents(contents, filename, date):
+def parse_contents(contents):
     try:
         # Convert image url to the shape required by VGG16
-        url_response = urllib.request.urlopen(contents)
-        img = Image.open(BytesIO(url_response.read()))
+        url_response = urlopen(contents)
+        img = Image.open(BytesIO(url_response.read())).convert('RGB')
         image = img.resize((224,224))
-        image = img_to_array(image)  
-        image = image / 255    
+        image = img_to_array(image)
+        image = image / 255
         image = np.expand_dims(image, axis=0)
         # Extract bottleneck features from the VGG16 network
         global graph_vgg16
         with graph_vgg16.as_default():
-            bottleneck_prediction = model_vgg16.predict(image) 
+            bottleneck_prediction = model_vgg16.predict(image)
+        # Classify image
         global graph_top
         with graph_top.as_default():
             class_predicted = model.predict_classes(bottleneck_prediction)
         inID = class_predicted[0]     
         label = style[inID] 
-         
-        #feat = np.array(image_small)
-        #label = model.predict(feat.reshape(1, -1))
         title = str(label)
+        # Extract the corresponding description
         f = open(text_directory + title + '_description.txt', 'r')
         file_contents = f.read()
-        #print(title)
+        # Randomly select three other art pieces from the same class
         data_label = data[data['style'].str.contains(title)]
         recommendation = data_label.sample(n=3)
         recommendation['contentId']=recommendation['contentId'].apply(str)  
-     #   image_rec = list('/Users/lizbaldo/Desktop/wikiart-master/wikiart/images/' + recommendation['contentId'] + '.jpg')
         title_rec = list(recommendation['title']) 
         artist_rec = list('By '  + recommendation['artistName'])
         title_url = list(recommendation['url']) 
         artist_url = list(recommendation['artistUrl'])    
         return html.Div([
-
             html.Div([
             html.Div([
             html.Img(src=contents,style = {'display': 'block','width': '100%','height': '100%','margin-top': '25px'})
@@ -167,20 +167,22 @@ def parse_contents(contents, filename, date):
             ])
     except:
         return html.Div([
-                   html.H6('Format not supported, or image larger than 1mb, please try again.',style = {'display': 'block','textAlign': 'center'},className="twelve columns")
+                   html.H6('Format not supported, please try again.',style = {'display': 'block','textAlign': 'center'},className="twelve columns")
                 ])
 
-
 @app.callback(Output('output-image-upload', 'children'),
-              [Input('upload-image', 'contents'),
-               Input('upload-image', 'filename'),
-               Input('upload-image', 'last_modified')])
-def update_output(list_of_contents, list_of_names, list_of_dates):
+                  [Input('upload-image', 'contents')])
+def update_output(list_of_contents):
     if list_of_contents is not None:        
         children = [
-            parse_contents(c, n, d) for c, n, d in
-            zip(list_of_contents, list_of_names, list_of_dates)]
+            parse_contents(list_of_contents)]
         return children
+    else:
+        return html.Div([
+                   html.H6('Format not supported, please try again.',style = {'display': 'block','textAlign': 'center'},className="twelve columns")
+                ])
+    
+    
 
 page_1_layout = html.Div([
                html.H4(               
@@ -196,15 +198,16 @@ page_1_layout = html.Div([
            html.Img(src='data:image/png;base64,{}'.format(encoded_Liz.decode()),style = {'display': 'block','textAlign': 'center','margin': 'auto','width': '20%','height': '20%','margin-bottom': '10px'}),
            html.A("Find Liz on Linkedin", href='https://www.linkedin.com/in/lizbaldo/', target="_blank", style={'display': 'block','textAlign': 'center','margin': 'auto','margin-bottom': '30px'}),
             html.H6(               
-            children='Liz is a Data Science Fellow at Insight Data Science in Boston, MA. She got her Ph.D. from UCLA in Civil Engineering and Water Resources Engineering. \
+            children='Liz Baldo is a Data Science Fellow at Insight Data Science in Boston, MA. She got her Ph.D. from UCLA in Hydrology and Water Resources Engineering, where she used data assimilation techniques to model montane snow processes based on satellite images. \
                Liz also grew up as the only space nerd in a family of painters, sculptors and musicians, and designed "Find Your Art" as a tool to help non-experts discover \
                styles they like without any prerequisite in art history!', style={'display': 'block','textAlign': 'center','margin': 'auto','width': '50%','height': '20%','margin-bottom': '30px'}),
              ]),
 
     html.Div([
             html.H6(children='Find more about the project!', style={'textAlign': 'center','margin-bottom': '10px'}), 
-            html.Iframe(src="https://docs.google.com/presentation/d/e/2PACX-1vQQOn8v3BeIssWz2qzbBXc3u4RuBMLQSMWdV7klwNBgfbDIhTIKww-n3bAo-GAEQdVCcbPLXsjmzjNu/embed?start=false&loop=false&delayms=60000",\
-                         style={'width': '960px','height': '569px','display': 'block','textAlign': 'center','margin': 'auto'})
+            html.Iframe(src="https://docs.google.com/presentation/d/e/2PACX-1vTeIpvO1FowZSEA4jba3CviavEAcSEWiZUTeBqmUBzjcihS1Vp3-zaw0-qY9wI34OLxF3COBk9_jKW1/embed?start=false&loop=false&delayms=60000",\
+                         style={'width': '960px','height': '569px','display': 'block','textAlign': 'center','margin': 'auto'}),
+            html.A("You can also access the presentation here", href='https://docs.google.com/presentation/d/11Y7why2Jzs1Uk42NfWw8cUcBgj7VfgKpkNTnylVu6eo/edit?usp=sharing', target="_blank", style={'display': 'block','textAlign': 'center','margin': 'auto','margin-bottom': '30px'}),
        ]),
     html.Div(id='page-1-content'),
 ])
@@ -219,11 +222,6 @@ def display_page(pathname):
         return index_page
     
 
-app.css.append_css({
-    'external_url': 'https://codepen.io/chriddyp/pen/bWLwgP.css'
-})
 
-        
-    
 if __name__ == '__main__':
-	app.run_server(debug=True)    
+    app.run_server(host='0.0.0.0',debug=True)
